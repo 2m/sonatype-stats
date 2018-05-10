@@ -53,7 +53,8 @@ object SonatypeStats {
 
     def reqFactory =
       (s: Stats) =>
-        request(s.artifact.group,
+        request(s.artifact.project,
+                s.artifact.group,
                 s.artifact.name + s.scalaPostfix,
                 fromMonth,
                 c.getInt("months"),
@@ -77,14 +78,22 @@ object SonatypeStats {
 
   private def getArtifacts(c: Config) = {
     val artifactConfig = c.getConfig("artifacts")
-    val artifactGroups = artifactConfig.entrySet().asScala.map(_.getKey)
-    artifactGroups
-      .flatMap(g => artifactConfig.getStringList(g).asScala.map(Artifact(g.replaceAll('"'.toString, ""), _)))
-      .toIndexedSeq
+    for {
+      projectId <- artifactConfig.shallowKeys()
+      project = artifactConfig.getConfig(projectId)
+      groupId <- project.keys()
+      name <- project.getStringList(groupId).asScala
+    } yield Artifact(projectId, groupId.replaceAll('"'.toString, ""), name)
   }
 
-  private def request(group: String, name: String, from: YearMonth, months: Int, username: String, password: String) = {
-    val requestQuery = Query("p" -> "67234479532118",
+  private def request(project: String,
+                      group: String,
+                      name: String,
+                      from: YearMonth,
+                      months: Int,
+                      username: String,
+                      password: String) = {
+    val requestQuery = Query("p" -> project,
                              "t" -> "raw",
                              "g" -> group,
                              "a" -> name,
@@ -114,6 +123,11 @@ object SonatypeStats {
       })
       .map(_.toMap)
 
-  case class Artifact(group: String, name: String)
+  case class Artifact(project: String, group: String, name: String)
   case class Stats(artifact: Artifact, scalaPostfix: String, downloads: Map[YearMonth, Int])
+
+  implicit class ConfigOps(c: Config) {
+    def shallowKeys(): Seq[String] = c.root().entrySet().asScala.toIndexedSeq.map(_.getKey)
+    def keys(): Seq[String] = c.entrySet().asScala.toIndexedSeq.map(_.getKey)
+  }
 }
