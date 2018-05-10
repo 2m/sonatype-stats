@@ -9,7 +9,7 @@ import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.Uri.Query
 import akka.http.scaladsl.model.headers.{Authorization, BasicHttpCredentials}
 import akka.http.scaladsl.model.{HttpMethods, HttpRequest, Uri}
-import akka.stream.alpakka.csv.scaladsl.CsvParsing
+import akka.stream.alpakka.csv.scaladsl.{CsvFormatting, CsvParsing}
 import akka.stream.scaladsl.{Flow, Sink, Source}
 import akka.stream.{ActorMaterializer, Materializer}
 import com.typesafe.config.Config
@@ -26,24 +26,34 @@ object SonatypeStats {
 
     implicit val sys = ActorSystem("SonatypeStats")
     implicit val mat = ActorMaterializer()
+    import sys.dispatcher
 
     try {
-      val future = getAndPrintStats(sys.settings.config.getConfig("sonatype-stats"))
-      val result = Await.result(future, 10.seconds)
+      val complete = for {
+        stats <- getStats(sys.settings.config.getConfig("sonatype-stats"))
+        io <- printStats(stats)
+      } yield ()
 
-      val months = result.head.downloads.keys.map(_.format(YearMonthFormat)).mkString("|", "|", "|")
-      println(s"|$months")
-
-      result.sortBy(s => s.artifact.group + ":" + s.artifact.name).foreach { s =>
-        val downloads = s.downloads.values.mkString("|", "|", "|")
-        println(s"|${s.artifact.name}${s.scalaPostfix}$downloads")
-      }
+      Await.result(complete, 10.seconds)
     } finally {
       sys.terminate()
     }
   }
 
-  private def getAndPrintStats(c: Config)(implicit sys: ActorSystem, mat: Materializer): Future[Seq[Stats]] = {
+  private def printStats(resutls: Seq[Stats])(implicit mat: Materializer) = {
+    val header = Seq("Artifact") ++ resutls.head.downloads.keys.map(_.format(YearMonthFormat))
+    val values =
+      resutls.map(s => Seq(s.artifact.name + s.scalaPostfix) ++ s.downloads.values.map(_.toString)).sortBy(_.head)
+
+    Source
+      .single(header)
+      .concat(Source.apply(values))
+      .via(CsvFormatting.format())
+      .map(_.utf8String)
+      .runForeach(print)
+  }
+
+  private def getStats(c: Config)(implicit sys: ActorSystem, mat: Materializer): Future[Seq[Stats]] = {
 
     import sys.dispatcher
 
