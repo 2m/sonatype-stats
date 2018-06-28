@@ -1,5 +1,6 @@
 package sonatypestats
 
+import java.nio.file.Paths
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 
@@ -10,7 +11,7 @@ import akka.http.scaladsl.model.Uri.Query
 import akka.http.scaladsl.model.headers.{Authorization, BasicHttpCredentials}
 import akka.http.scaladsl.model.{HttpMethods, HttpRequest, Uri}
 import akka.stream.alpakka.csv.scaladsl.{CsvFormatting, CsvParsing}
-import akka.stream.scaladsl.{Flow, Sink, Source}
+import akka.stream.scaladsl.{FileIO, Flow, Sink, Source}
 import akka.stream.{ActorMaterializer, Materializer}
 import com.typesafe.config.Config
 
@@ -29,9 +30,10 @@ object SonatypeStats {
     import sys.dispatcher
 
     try {
+      val config = sys.settings.config.getConfig("sonatype-stats")
       val complete = for {
-        stats <- getStats(sys.settings.config.getConfig("sonatype-stats"))
-        io <- printStats(stats)
+        stats <- getStats(config)
+        io <- printStats(stats, config.getStringList("scala-major-versions").size)
       } yield ()
 
       Await.result(complete, 10.seconds)
@@ -40,15 +42,24 @@ object SonatypeStats {
     }
   }
 
-  private def printStats(resutls: Seq[Stats])(implicit mat: Materializer) = {
-    val header = Seq("Artifact") ++ resutls.head.downloads.keys.map(_.format(YearMonthFormat))
-    val values =
-      resutls.map(s => Seq(s.artifact.name + s.scalaPostfix) ++ s.downloads.values.map(_.toString)).sortBy(_.head)
+  private def printStats(results: Seq[Stats], numberOfScalaVersions: Int)(implicit mat: Materializer) = {
+    val header = Seq("Artifact", "Scala Version") ++ results.head.downloads.map(_._1.format(YearMonthFormat))
+    val withScalaVersionTotals = results
+      .grouped(numberOfScalaVersions)
+      .flatMap { perVersion =>
+        val allVersions = perVersion.drop(1).foldLeft(perVersion.head)(_ + _)
+        perVersion ++ Seq(allVersions, Stats.empty)
+      }
+    val values: Seq[Seq[String]] =
+      withScalaVersionTotals
+        .map(s => Seq(s.artifact.name, s.scalaVersion) ++ s.downloads.map(_._2.toString))
+        .toList
 
     Source
       .single(header)
       .concat(Source.apply(values))
       .via(CsvFormatting.format())
+      .alsoTo(FileIO.toPath(Paths.get("./sonatype.csv")))
       .map(_.utf8String)
       .runForeach(print)
   }
@@ -58,8 +69,8 @@ object SonatypeStats {
     import sys.dispatcher
 
     val fromMonth = YearMonth.parse(c.getString("from"), YearMonthFormat)
-    val scalaPostfixes =
-      c.getStringList("scala-cross-postfix").asScala.toIndexedSeq
+    val scalaVersions =
+      c.getStringList("scala-major-versions").asScala.toIndexedSeq
 
     def reqFactory =
       (s: Stats) =>
@@ -72,18 +83,19 @@ object SonatypeStats {
                 c.getString("password"))
 
     val source = Source(getArtifacts(c))
-      .via(artifactToStats(scalaPostfixes, fromMonth, reqFactory))
+      .via(artifactToStats(scalaVersions, fromMonth, reqFactory))
 
-    source.runWith(Sink.seq)
+    source
+      .runWith(Sink.seq)
   }
 
   private def artifactToStats(
-      scalaPostfixes: Seq[String],
+      scalaVersions: Seq[String],
       from: YearMonth,
       reqFactory: Stats => HttpRequest
   )(implicit sys: ActorSystem, mat: Materializer, ec: ExecutionContext): Flow[Artifact, Stats, NotUsed] =
     Flow[Artifact]
-      .mapConcat(a => scalaPostfixes.map(Stats(a, _, Map.empty)))
+      .mapConcat(a => scalaVersions.map(Stats(a, _, Seq.empty)))
       .mapAsync(2)(s => getDownloads(reqFactory(s), from).map(downloads => s.copy(downloads = downloads)))
 
   private def getArtifacts(c: Config) = {
@@ -131,13 +143,35 @@ object SonatypeStats {
       .map(_.zipWithIndex.map {
         case (hits, idx) => from.plusMonths(idx) -> hits
       })
-      .map(_.toMap)
 
   case class Artifact(project: String, group: String, name: String)
-  case class Stats(artifact: Artifact, scalaPostfix: String, downloads: Map[YearMonth, Int])
+
+  case class Stats(artifact: Artifact, scalaVersion: String, downloads: Seq[(YearMonth, Int)]) {
+    val scalaPostfix = s"_$scalaVersion"
+
+    def +(other: Stats): Stats = {
+      if (this.artifact != other.artifact)
+        throw new RuntimeException(s"mismatching artifacts $artifact vs. ${other.artifact}")
+      Stats(
+        this.artifact,
+        "",
+        downloads = this.downloads.zip(other.downloads).map {
+          case ((thisYearMonth, thisNum), (otherYearMonth, otherNum)) =>
+            if (thisYearMonth == otherYearMonth) (thisYearMonth, thisNum + otherNum)
+            else throw new RuntimeException(s"mismatching months for $artifact: $thisYearMonth $otherYearMonth")
+        }
+      )
+    }
+  }
+
+  object Stats {
+    val empty = Stats(Artifact("", "", ""), "", Seq.empty)
+  }
 
   implicit class ConfigOps(c: Config) {
     def shallowKeys(): Seq[String] = c.root().entrySet().asScala.toIndexedSeq.map(_.getKey)
+
     def keys(): Seq[String] = c.entrySet().asScala.toIndexedSeq.map(_.getKey)
   }
+
 }
