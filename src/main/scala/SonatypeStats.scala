@@ -74,13 +74,15 @@ object SonatypeStats {
 
     def reqFactory =
       (s: Stats) =>
-        request(s.artifact.project,
-                s.artifact.group,
-                s.artifact.name + s.scalaPostfix,
-                fromMonth,
-                c.getInt("months"),
-                c.getString("username"),
-                c.getString("password"))
+        request(
+          s.artifact.project,
+          s.artifact.group,
+          s.artifact.name + s.scalaPostfix,
+          fromMonth,
+          c.getInt("months"),
+          c.getString("username"),
+          c.getString("password")
+        )
 
     val source = Source(getArtifacts(c))
       .via(artifactToStats(scalaVersions, fromMonth, reqFactory))
@@ -108,19 +110,23 @@ object SonatypeStats {
     } yield Artifact(projectId, groupId.replaceAll('"'.toString, ""), name)
   }
 
-  private def request(project: String,
-                      group: String,
-                      name: String,
-                      from: YearMonth,
-                      months: Int,
-                      username: String,
-                      password: String) = {
-    val requestQuery = Query("p" -> project,
-                             "t" -> "raw",
-                             "g" -> group,
-                             "a" -> name,
-                             "from" -> from.format(YearMonthFormat),
-                             "nom" -> months.toString)
+  private def request(
+      project: String,
+      group: String,
+      name: String,
+      from: YearMonth,
+      months: Int,
+      username: String,
+      password: String
+  ) = {
+    val requestQuery = Query(
+      "p" -> project,
+      "t" -> "raw",
+      "g" -> group,
+      "a" -> name,
+      "from" -> from.format(YearMonthFormat),
+      "nom" -> months.toString
+    )
     val requestUri =
       Uri("https://oss.sonatype.org/service/local/stats/timeline_csv")
         .withQuery(requestQuery)
@@ -129,8 +135,10 @@ object SonatypeStats {
     request
   }
 
-  private def getDownloads(request: HttpRequest,
-                           from: YearMonth)(implicit sys: ActorSystem, mat: Materializer, ec: ExecutionContext) =
+  private def getDownloads(
+      request: HttpRequest,
+      from: YearMonth
+  )(implicit sys: ActorSystem, mat: Materializer, ec: ExecutionContext) =
     Http()
       .singleRequest(request)
       .flatMap(
