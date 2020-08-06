@@ -37,9 +37,7 @@ object SonatypeStats {
       } yield ()
 
       Await.result(complete, 10.seconds)
-    } finally {
-      sys.terminate()
-    }
+    } finally sys.terminate()
   }
 
   private def printStats(results: Seq[Stats], numberOfScalaVersions: Int)(implicit mat: Materializer) = {
