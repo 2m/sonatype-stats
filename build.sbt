@@ -1,4 +1,4 @@
-scalaVersion := "2.12.13"
+scalaVersion := "2.13.5"
 
 libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-stream" % "2.6.13",
