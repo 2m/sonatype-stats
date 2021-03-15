@@ -4,7 +4,10 @@ import java.nio.file.Paths
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 
-import akka.{Done, NotUsed}
+import scala.collection.JavaConverters._
+import scala.concurrent.duration._
+import scala.concurrent.{Await, ExecutionContext, Future}
+
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.Uri.Query
@@ -13,11 +16,9 @@ import akka.http.scaladsl.model.{HttpMethods, HttpRequest, Uri}
 import akka.stream.alpakka.csv.scaladsl.{CsvFormatting, CsvParsing}
 import akka.stream.scaladsl.{FileIO, Flow, Sink, Source}
 import akka.stream.{ActorMaterializer, Materializer}
-import com.typesafe.config.Config
+import akka.{Done, NotUsed}
 
-import scala.collection.JavaConverters._
-import scala.concurrent.{Await, ExecutionContext, Future}
-import scala.concurrent.duration._
+import com.typesafe.config.Config
 
 object SonatypeStats {
 
@@ -146,8 +147,8 @@ object SonatypeStats {
           .map(_.head.utf8String.toInt)
           .runWith(Sink.seq)
       )
-      .map(_.zipWithIndex.map {
-        case (hits, idx) => from.plusMonths(idx) -> hits
+      .map(_.zipWithIndex.map { case (hits, idx) =>
+        from.plusMonths(idx) -> hits
       })
 
   case class Artifact(project: String, group: String, name: String)
@@ -161,11 +162,11 @@ object SonatypeStats {
       Stats(
         this.artifact,
         "",
-        downloads = this.downloads.zip(other.downloads).map {
-          case ((thisYearMonth, thisNum), (otherYearMonth, otherNum)) =>
+        downloads =
+          this.downloads.zip(other.downloads).map { case ((thisYearMonth, thisNum), (otherYearMonth, otherNum)) =>
             if (thisYearMonth == otherYearMonth) (thisYearMonth, thisNum + otherNum)
             else throw new RuntimeException(s"mismatching months for $artifact: $thisYearMonth $otherYearMonth")
-        }
+          }
       )
     }
   }
