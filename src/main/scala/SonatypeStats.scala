@@ -37,7 +37,7 @@ object SonatypeStats {
         io <- printStats(stats, config.getStringList("scala-major-versions").size)
       } yield ()
 
-      Await.result(complete, 10.seconds)
+      Await.result(complete, 1.minute)
     } finally sys.terminate()
   }
 
