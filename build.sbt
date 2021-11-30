@@ -3,7 +3,7 @@ scalaVersion := "2.13.7"
 libraryDependencies ++= Seq(
   "com.typesafe.akka"  %% "akka-stream"             % "2.6.17",
   "com.typesafe.akka"  %% "akka-http-core"          % "10.2.7",
-  "com.lightbend.akka" %% "akka-stream-alpakka-csv" % "3.0.3"
+  "com.lightbend.akka" %% "akka-stream-alpakka-csv" % "3.0.4"
 )
 
 scalafmtOnCompile := true
