@@ -16,7 +16,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: coursier/cache-action@v6
-    - uses: laughedelic/coursier-setup@v1
+    - uses: laughedelic/coursier-setup@v2
       with:
         jvm: adopt:14
         apps: sbtn
@@ -34,7 +34,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: coursier/cache-action@v6
-    - uses: laughedelic/coursier-setup@v1
+    - uses: laughedelic/coursier-setup@v2
       with:
         jvm: adopt:14
         apps: sbtn
